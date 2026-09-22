@@ -1,0 +1,23 @@
+
+__pycache__/
+/**/__pycache__/
+
+test
+/**/test
+
+.venv/
+/**/.venv/
+
+tmp/
+/**/tmp/
+
+*.yml
+/**/*.yml
+
+*.json
+# src/deploy reads these at runtime; re-include them despite the blanket *.json rule above.
+!src/utils/data/iam/**/*.json
+
+/**/.env
+/**/.idea
+/**/.DS_Store
