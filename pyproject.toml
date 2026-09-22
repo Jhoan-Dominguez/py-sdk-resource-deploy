@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.pytest.ini_options]
+# Solo las pruebas unitarias: las de python_tests/e2e necesitan docker compose (ver su README).
+testpaths = ["python_tests/unit"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
