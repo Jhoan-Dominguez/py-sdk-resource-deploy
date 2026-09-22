@@ -1,0 +1,127 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageProjectRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*"
+    },
+    {
+      "Sid": "CreateAndChangeRolesOnlyWithTheBoundary",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/sf-onboarding-dev-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "AttachOnlyTheManagedPoliciesTheModulesUse",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          ]
+        },
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/sf-onboarding-dev-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "SetTheProjectBoundaryOnExistingRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/sf-onboarding-dev-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "NeverRemoveOrSwapTheBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*"
+    },
+    {
+      "Sid": "NeverSwapTheBoundaryForAnotherPolicy",
+      "Effect": "Deny",
+      "Action": [
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*",
+      "Condition": {
+        "StringNotEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/sf-onboarding-dev-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "PassProjectRolesToTheirServicesOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/sf-onboarding-dev-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "states.amazonaws.com",
+            "ecs-tasks.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateServiceLinkedRolesOnFirstUse",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "rds.amazonaws.com",
+            "vpcorigin.cloudfront.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
