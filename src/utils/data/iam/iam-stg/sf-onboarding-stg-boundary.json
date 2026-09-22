@@ -1,0 +1,153 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LogStreamsOfTheProjectLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/lambda/sf-onboarding-*:*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/vendedlogs/states/sf-onboarding-*:*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/ecs/sf-onboarding-*:*"
+      ]
+    },
+    {
+      "Sid": "StepFunctionsLogDeliveryAndDescribeLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TaskTokensTable",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:${AWS_ACCOUNT_ID}:table/task-tokens-stg"
+    },
+    {
+      "Sid": "OrdersQueue",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:us-east-1:${AWS_ACCOUNT_ID}:sf-onboarding-stg-*"
+    },
+    {
+      "Sid": "StartExecutions",
+      "Effect": "Allow",
+      "Action": [
+        "states:StartExecution"
+      ],
+      "Resource": "arn:aws:states:us-east-1:${AWS_ACCOUNT_ID}:stateMachine:sf-onboarding-stg-*"
+    },
+    {
+      "Sid": "TaskCallbacksHaveNoResourceType",
+      "Effect": "Allow",
+      "Action": [
+        "states:SendTaskSuccess",
+        "states:SendTaskFailure",
+        "states:SendTaskHeartbeat"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InvokeTheWorkflowLambdas",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sf-onboarding-*-stg"
+    },
+    {
+      "Sid": "ReadTheProjectParametersAndSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:ssm:us-east-1:${AWS_ACCOUNT_ID}:parameter/sf-onboarding/stg/*",
+        "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:/sf-onboarding/stg/*",
+        "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:rds!*"
+      ]
+    },
+    {
+      "Sid": "DecryptOnlyThroughSsmAndSecretsManager",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "ssm.us-east-1.amazonaws.com",
+            "secretsmanager.us-east-1.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "EcrPullForEcsTasks",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:${AWS_ACCOUNT_ID}:repository/sf-onboarding-stg-*"
+    },
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NetworkInterfacesOfTheInVpcLambdas",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeSubnets",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AssignPrivateIpAddresses",
+        "ec2:UnassignPrivateIpAddresses"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcsExecChannels",
+      "Effect": "Allow",
+      "Action": [
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

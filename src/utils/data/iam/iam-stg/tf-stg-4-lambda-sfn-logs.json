@@ -1,0 +1,115 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:DeleteFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:ListVersionsByFunction",
+        "lambda:GetPolicy",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sf-onboarding-*-stg"
+    },
+    {
+      "Sid": "SqsEventSourceMapping",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateEventSourceMapping",
+        "lambda:GetEventSourceMapping",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping",
+        "lambda:ListEventSourceMappings"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SqsEventSourceMappingTags",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:event-source-mapping:*"
+    },
+    {
+      "Sid": "StateMachine",
+      "Effect": "Allow",
+      "Action": [
+        "states:CreateStateMachine",
+        "states:DeleteStateMachine",
+        "states:UpdateStateMachine",
+        "states:DescribeStateMachine",
+        "states:ListStateMachineVersions",
+        "states:TagResource",
+        "states:UntagResource",
+        "states:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:states:us-east-1:${AWS_ACCOUNT_ID}:stateMachine:sf-onboarding-stg-*"
+    },
+    {
+      "Sid": "ValidateStateMachineDefinitionHasNoResourceType",
+      "Effect": "Allow",
+      "Action": [
+        "states:ValidateStateMachineDefinition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "StateMachineLogDelivery",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LogGroupsOfTheProject",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsForResource",
+        "logs:ListTagsLogGroup"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/lambda/sf-onboarding-*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/lambda/sf-onboarding-*:*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/vendedlogs/states/sf-onboarding-*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/aws/vendedlogs/states/sf-onboarding-*:*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/ecs/sf-onboarding-*",
+        "arn:aws:logs:us-east-1:${AWS_ACCOUNT_ID}:log-group:/ecs/sf-onboarding-*:*"
+      ]
+    },
+    {
+      "Sid": "DescribeLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListStatePrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::amzn-s3-tf-onboarding-bancolombia-${AWS_ACCOUNT_ID}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "sf-onboarding/stg/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteStateObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::amzn-s3-tf-onboarding-bancolombia-${AWS_ACCOUNT_ID}/sf-onboarding/stg/*"
+    }
+  ]
+}

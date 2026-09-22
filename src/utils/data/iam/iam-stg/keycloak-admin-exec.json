@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "FindTheKeycloakTask",
+      "Effect": "Allow",
+      "Action": "ecs:ListTasks",
+      "Resource": "*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:cluster/sf-onboarding-stg-cluster"
+        }
+      }
+    },
+    {
+      "Sid": "DescribeTasksOfTheCluster",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTasks",
+      "Resource": "arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:task/sf-onboarding-stg-cluster/*"
+    },
+    {
+      "Sid": "OpenAShellOnlyInKeycloak",
+      "Effect": "Allow",
+      "Action": "ecs:ExecuteCommand",
+      "Resource": [
+        "arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:cluster/sf-onboarding-stg-cluster",
+        "arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:task/sf-onboarding-stg-cluster/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ecs:container-name": "keycloak"
+        }
+      }
+    }
+  ]
+}
