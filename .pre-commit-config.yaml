@@ -1,0 +1,62 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+        exclude: '^terraform/(modules|environment)/[^/]+/README\.md$'
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+
+  # --- Python: formateo ---
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        files: ^src/
+
+  # --- Python: linting + import sorting (ruff reemplaza flake8+isort+más) ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^src/
+      - id: ruff-format   # opcional si no usas black
+
+  # --- Python: type checking ---
+#  - repo: https://github.com/pre-commit/mirrors-mypy
+#    rev: v1.11.2
+#    hooks:
+#      - id: mypy
+#        files: ^src/
+#        additional_dependencies: [boto3-stubs, types-requests]
+#
+  # --- Terraform: formateo, validación, docs, linting, seguridad ---
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_tflint
+        args:
+          - "--args=--config=__GIT_WORKING_DIR__/.tflint.hcl"
+      - id: terraform_docs
+        args:
+          - "--args=--config=.terraform-docs.yml"
+#      - id: terraform_checkov
+#        args:
+#          - "--args=--quiet --compact"
+#      - id: terraform_trivy   # o terraform_tfsec (deprecado, migrar a trivy)
+
+  # --- Secretos ---
+#  - repo: https://github.com/Yelp/detect-secrets
+#    rev: v1.5.0
+#    hooks:
+#      - id: detect-secrets
+#        args: ["--baseline", ".secrets.baseline"]
