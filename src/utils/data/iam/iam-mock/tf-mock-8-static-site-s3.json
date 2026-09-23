@@ -35,6 +35,17 @@
         "s3:GetReplicationConfiguration"
       ],
       "Resource": "arn:aws:s3:::sf-onboarding-mock-app-${AWS_ACCOUNT_ID}"
+    },
+    {
+      "Sid": "S3TfUpdate",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::amzn-s3-tf-onboarding-bancolombia-${AWS_ACCOUNT_ID}/sf-onboarding/mock/*"
     }
   ]
 }
