@@ -4,102 +4,146 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Terraform IaC (plus a thin Python layer) for `sf-onboarding`: an AWS order-processing workflow (SQS →
-Lambda → Step Functions → DynamoDB task tokens) fronted by an ECS/Fargate backend + Keycloak for auth,
-edge CloudFront/WAF, and an S3+CloudFront static frontend. Target AWS account is a Bancolombia sandbox
-(`011221923990`, `us-east-1`).
+A small boto3 CLI (not Terraform) that bootstraps the **IAM identities that run Terraform** for the
+`sf-onboarding` project (an AWS order-processing workflow: SQS → Lambda → Step Functions → DynamoDB,
+ECS/Fargate backend + Keycloak, CloudFront/WAF edge, S3+CloudFront frontend). It turns JSON policy
+documents under `src/utils/data/iam/iam-<env>/` into IAM managed policies and roles for the `dev`,
+`mock`, `stg` and `prod` environments, and records everything it deploys in a central DynamoDB
+inventory so resources can later be reviewed and removed (deploy + undeploy lifecycle).
 
-## Repo state — read before trusting the docs
+User-facing docs live in `docs/` (`README.md` index, `inventory.md`, `undeploy.md`, `audit.md`,
+`expiry.md`, `iam-service.md`, `notes.md`). **Every
+change to the tool must update them** — they are part of "done", not optional.
 
-**The repository is mid-build-out: the module READMEs and `terraform/environment/dev/docs/*.md`
-describe a target architecture that is well ahead of what actually exists on disk.** Concretely, as of
-now:
+It is deliberately outside Terraform: these are the permissions of the identity that applies
+Terraform (plus the permissions boundary Terraform's `module.iam` references by ARN), so managing them
+from the same state would be a circular bootstrap dependency.
 
-- `terraform/environment/dev/main.tf` references 8 modules that **do not exist** under `terraform/modules/`:
-  `vpc`, `step_function`, `acm_certificate`, `container_image`, `rds_postgres`, `ecs_platform`, `edge`,
-  `ecs_service`. Only these 10 modules exist: `dynamodb`, `ecr`, `iam`, `iam_policies`, `lambda`,
-  `lambda_container`, `secret`, `sqs`, `ssm_parameter`, `static_site`. `terraform init`/`plan` on
-  `environment/dev` will currently fail on the missing module sources.
-- `main.tf` also points Lambda/container `source_dir`s at `src/app/lambda/...`, `src/app/backend`,
-  `src/app/keycloak` — none of which exist. `src/` only contains `src/main.py`, an unused PyCharm
-  boilerplate stub, not part of the application.
-- `terraform/environment/{stg,prod,mock}/` and `python_tests/`, `test/` (mentioned in the dev README's
-  "Full Repository Structure" diagram and in `pyproject.toml`'s `testpaths`) don't exist either.
-- Before relying on a module/path/env the docs mention, verify it's actually on disk (`ls`/`find`) rather
-  than trusting the README.
-
-When adding the missing pieces, match the conventions of the 10 modules that already exist (below) —
-they're the real source of truth for this project's style, not the aspirational docs.
-
-Not a git repository yet (no `.git`).
+The Terraform code itself **does not live in this repo**. Leftover Terraform tooling (`.tflint.hcl`,
+`.terraform-docs.yml`, the `terraform_*` pre-commit hooks and Makefile targets, Terraform entries in
+`.gitignore`) targets paths like `terraform/environment/...` that don't exist here; references to
+those paths in docstrings are to the separate Terraform repo.
 
 ## Commands
 
-AWS access (assumes the onboarding role into the sandbox account):
+Run the CLI from the repo root with the variables in `.env.template` exported (all required except
+`INVENTORY_TABLE_MODE`); the tool refuses to start without them:
 ```
-make authenticate_aws
+python3 src/main.py deploy iam --env dev                 # dry-run (default): only read APIs are called
+python3 src/main.py deploy iam --env dev --apply         # write to AWS + record in the inventory
+python3 src/main.py deploy iam --env dev,mock,stg,prod   # several environments, one deployment id
+python3 src/main.py inventory init [--apply]             # validate / create the inventory table
+python3 src/main.py inventory list [--env dev] [--service iam] [--status active]
+python3 src/main.py inventory import iam --env dev --origin created|adopted [--reclassify] \
+    [--resource NAME ...] [--apply]                     # tag + record existing resources only
+python3 src/main.py inventory keep|unkeep <name|arn|deployment-id>... [--reason TEXT]
+python3 src/main.py undeploy iam --env dev [--resource NAME ...] [--apply [--confirm dev]]
+python3 src/main.py undeploy --deployment-id <id> [--apply [--confirm <envs>]]
+python3 src/main.py undeploy --expired [iam] [--env dev] [--apply [--confirm <envs>]]
+python3 src/main.py inventory audit [--service iam] [--env dev] [--apply]   # --apply fixes inventory only
+python3 src/main.py inventory expire <target>... --in 7d | --at 2026-10-01 | --clear
+python3 src/main.py inventory expired                   # deploy/import also take --ttl 7d
 ```
 
-Python (`src/`, all driven through pre-commit; ruff config in `pyproject.toml` targets py313,
-line-length 100; there is a second, unused `pyproject_black.toml` with different settings — line-length
-88 — left over from before the ruff/black setup in `pyproject.toml`, don't use it):
+Via Docker (reads `.env`, mounts `~/.aws` for boto3's credential chain):
 ```
-make fmt                 # black --all-files, ruff --fix (manual stage), terraform_fmt
-make pre-commit-python   # black + ruff only (mypy line is commented out in the Makefile)
+make run-deploy [SERVICE=iam] [ENV=dev] [APPLY=1]
+make run-inventory [ARGS="--env dev"]
+make run-import ORIGIN=created [ENV=dev] [ARGS="--reclassify"] [APPLY=1]
+make run-undeploy [ENV=dev] [ARGS="--resource NAME"] [APPLY=1 CONFIRM=dev]
+make run-audit [ARGS="--service iam --env dev"] [APPLY=1]
 ```
-No test suite exists yet — `pyproject.toml` points pytest at `python_tests/unit`, which hasn't been
-created.
 
-Terraform (run pre-commit targets from repo root; they operate on whatever `.tf` files are staged/changed):
-```
-make validate             # terraform_validate
-make pre-commit-terraform # terraform_fmt, terraform_validate, terraform_tflint, terraform_docs
-```
-`make security` (checkov, detect-secrets) will no-op/fail: both hooks are commented out in
-`.pre-commit-config.yaml`.
+AWS auth into the sandbox account: `make authenticate_aws` (prints STS temp creds for the onboarding
+role). `requirements.txt` includes `botocore[crt]` because some local AWS CLI profiles use `aws login`.
 
-Per-environment (only `dev` exists):
+Lint/format (pre-commit, scoped to `src/`; ruff + black config in `pyproject.toml`, py313, line
+length 100 — ignore `pyproject_black.toml`, it's an unused leftover):
 ```
-cd terraform/environment/dev
-terraform init && terraform plan && terraform apply
+make fmt                 # black + ruff --fix across all files (its terraform_fmt step is a leftover)
+make pre-commit-python   # black + ruff on staged files
 ```
-`terraform/environment/dev/Makefile` has two shortcuts:
-- `make deploy-dev` — single `plan -parallelism=4 -out=tfplan` + `apply`.
-- `make deploy-by-service` — applies modules one at a time with `-target` in dependency order (useful
-  for bringing the environment up from scratch / debugging a single module), then a final untargeted
-  apply. It predates several modules added later (`ecr_process_order`, `external_api_key`, the whole
-  ECS/Keycloak/edge block) so its target list is incomplete — Terraform still resolves those as implicit
-  dependencies of the targets it does list.
+A local `.venv/` has black, ruff and pre-commit installed.
+mypy is configured (`mypy.ini`) but its pre-commit hook is commented out. There is no test suite:
+`pyproject.toml` points pytest at `python_tests/unit`, which doesn't exist. To exercise the CLI without
+AWS, run `main([...])` inside `moto`'s `mock_aws()` (moto isn't in `requirements.txt`; install it in a
+throwaway venv).
 
-`terraform-docs` regenerates a module/environment's `README.md` from its own `docs/header.md` +
-`docs/footer.md` (config at repo-root `.terraform-docs.yml`); every existing module and
-`environment/dev` has its own `docs/` pair.
+## Architecture
 
-## Architecture conventions (from the modules that actually exist)
+- `src/main.py` — entry point; puts `src/` on `sys.path` and calls `deploy.cli.main`.
+- `src/deploy/cli.py` — argparse with `deploy <service>`, `undeploy`, and
+  `inventory init|list|import|keep|unkeep|expire|expired|audit` subcommands. Also holds the
+  expiry selection (`_expired_items`: a dependent doesn't expire while a `created` dependency is
+  unexpired) and applies audit fixes (inventory only).
+  Verifies `sts:GetCallerIdentity` matches `AWS_ACCOUNT_ID` before any command, validates/creates the
+  inventory table before touching a service, then builds one `DeployRun` per environment (all sharing
+  one deployment id, built by `_runs()`) and passes it to the service. `SERVICES` is the service
+  registry: a new service is a `services/<name>.py` class implementing `ServiceDeployer`, registered
+  there.
+- `src/deploy/resources.py` — `DeployRun` (run context: env, apply flag, deployment id, caller ARN,
+  `action` deploy/import, `record()` callback, `tags(origin)`), `ResourceRecord`, `ImportOptions`,
+  and the `resource-deploy:*` ownership tag
+  keys (namespaced so they don't clash with Terraform's `default_tags`).
+- `src/deploy/inventory.py` — `InventoryStore` over DynamoDB. The table's key attribute names are read
+  from `describe_table`, so an existing table with any string `HASH`+`RANGE` keys works
+  (`INVENTORY_TABLE_MODE=existing` never creates one). Items are upserted with `if_not_exists` for the
+  `created_*` fields and marked `record_type=deploy-inventory`.
+- `src/deploy/undeploy.py` — `plan_undeploy()`: the service-agnostic rules for what an undeploy
+  may delete (selection closed over dependents; skip other-account, `adopted`, kept, and anything
+  linked to a kept item through `depends_on`; a dependent pulled in by the closure is only deleted if
+  something it depends on is deleted). Services never decide this themselves.
+- `src/deploy/config.py` — the only place env vars are read.
+- `src/deploy/services/iam.py` — the only service today. Idempotent "ensure" functions compare AWS
+  state to the desired document and only call write APIs when `run.apply`. Updating a policy creates a
+  new default version, pruning the oldest non-default one at the 5-version cap.
 
-- **Layout**: `terraform/modules/<name>` are reusable, single-purpose modules (one AWS service/concern
-  each — e.g. `dynamodb`, `sqs`, `ecr`); `terraform/environment/<env>` are root modules that compose
-  them. Only `dev` is wired up.
-- **Naming**: nearly everything is parameterized by `name_prefix = "${project_name}-${environment}"`.
-  Common tags (`Project`, `Environment`, `ManagedBy`) come from the `aws` provider's `default_tags`
-  block in `providers.tf`, not per-resource `tags`.
-- **IAM is split in two, applied in order**: `modules/iam` creates the roles and their trust
-  (assume-role) policies only; `modules/iam_policies` attaches the fine-grained permission policies
-  and is composed *last* in `main.tf`, once every resource ARN it needs (Lambda ARNs, table ARN, state
-  machine ARN, etc.) already exists. Roles that are only needed for a retired/optional path use
-  `count = var.create_legacy_callback_path ? 1 : 0` (or similar feature-flag variables) rather than a
-  separate module variant.
-- **Two Lambda deployment modules**: `modules/lambda` zips `source_dir` with the `archive_file` data
-  source (`hashicorp/archive` provider) and deploys a `.zip`-based function. `modules/lambda_container`
-  instead hashes `source_dir`, then uses a `null_resource` with a `local-exec` provisioner to
-  `docker buildx build` + push to ECR and deploy an image-based function — this means Docker and an
-  authenticated AWS CLI must be available wherever `terraform apply` runs for anything using this
-  module, and plans/applies against it are not pure-API operations.
-- **State**: `environment/dev/backend.tf` uses an S3 backend with native locking (`use_lockfile = true`,
-  requires Terraform >= 1.10, per `versions.tf`) — no DynamoDB lock table. The state contains secrets
-  generated by `modules/secret`, so the backend bucket must stay private/versioned/encrypted. Backend
-  block values are literals (Terraform doesn't allow variables there).
-- **Terraform/provider versions**: modules generally pin `required_version = ">= 1.9.0, < 2.0.0"` (the
-  `dev` environment itself requires `>= 1.10.0` for the S3 native lock) and `hashicorp/aws ~> 5.60`.
-- Inline comments inside `.tf` files are mostly in Spanish (matching the team); keep that convention
-  when editing existing files rather than switching a file's comments to English mid-file.
+Service contract (`services/base.py`): tag created resources `origin=created`, tag untagged existing
+ones `origin=adopted` (the origin tag is never rewritten; adopted resources must never be deleted by
+undeploy), call `run.record(...)` right after each resource succeeds (so partial failures leave an
+accurate inventory), and fill `depends_on` so undeploy can delete in reverse order. Services also
+implement `import_existing(run, options)`: tag + record resources that already exist, never changing
+their content; the origin tag is only overwritten with `--reclassify`. And `undeploy(run, items)`:
+delete the pre-approved items in dependency order, re-check the AWS origin tag, report each outcome via
+`run.record_removal(item, error)`, and never detach a policy from anything outside the plan (block
+instead). Plus `environments()` and `audit(run, items) -> list[Finding]` (read-only; kinds in
+`resources.FINDING_*`).
+
+Inventory writes: DynamoDB rejects unused `ExpressionAttributeNames`, so build them per expression
+(`inventory._names`). `put()` resets the lifecycle when the item was `status=deleted` (conditional
+update, then an unconditional one).
+
+All four roadmap phases (see `docs/README.md`) are done: inventory + tags, import, undeploy + keep,
+audit + expiry. `docs/notes.md` holds the verification status (mocked AWS only so far), design
+decisions, breaking changes, known limitations and the per-command permission list; **any caveat worth
+telling the user belongs there too, not only in chat.**
+
+### Policy file conventions (`src/utils/data/iam/iam-<env>/`)
+
+The file name decides what gets created (full detail in `docs/iam-service.md`):
+- `tf-<env>-N-*.json` → all attached to one role, `<PROJECT_NAME>-<env>-deploy`. The `N` orders them
+  by concern (1 state-s3, 2 network, 3 iam-roles, 4 lambda/sfn/logs, 5 data stores, 6 containers,
+  7 edge, 8 static site).
+- `*-boundary.json` → created as a managed policy, **never attached** (it's the permissions boundary
+  Terraform references by ARN).
+- `*-no-boundary.json` → alternate variant, skipped.
+- Any other file (`front-publish-site.json`, `keycloak-admin-exec.json`) → its own single-policy role.
+- Names: a stem that already contains the env token is used as-is; otherwise `-<env>` is appended,
+  since IAM names are account-wide and these files repeat across env folders.
+- All roles get the same trust policy: only `arn:aws:iam::<AWS_ACCOUNT_ID>:user/<TRUSTED_PRINCIPAL_USER>`
+  may assume them.
+- JSON files never contain the account id literally — use the `${AWS_ACCOUNT_ID}` placeholder, which
+  is substituted at load time.
+- `dev`, `stg`, `prod` intentionally carry the same 12-file set (env token swapped). `mock` has 9:
+  no boundary, state-s3 or no-boundary files, because mock uses local Terraform state and no
+  boundary. When changing a policy, apply the equivalent change to every env folder.
+
+## Conventions
+
+- No hardcoded account ids, user names, project names or regions in code or policy JSON — anything
+  environment/identity-specific must be a required env var in `config.py` and listed in
+  `.env.template`.
+- All new code, comments and docstrings are in English (some older tooling comments, e.g. in
+  `.pre-commit-config.yaml`, are Spanish; leave them unless asked).
+- `.dockerignore` excludes `*.json` globally but re-includes `src/utils/data/iam/**/*.json`; keep that
+  exception if data files move.
