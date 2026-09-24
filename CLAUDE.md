@@ -12,7 +12,8 @@ documents under `src/utils/data/iam/iam-<env>/` into IAM managed policies and ro
 inventory so resources can later be reviewed and removed (deploy + undeploy lifecycle).
 
 User-facing docs live in `docs/` (`README.md` index, `inventory.md`, `undeploy.md`, `audit.md`,
-`expiry.md`, `iam-service.md`, `notes.md`). **Every
+`expiry.md`, `iam-service.md`, `web-ui.md`, `notes.md`; `docs/history.txt` is a pasted chat
+transcript, not a doc). **Every
 change to the tool must update them** — they are part of "done", not optional.
 
 It is deliberately outside Terraform: these are the permissions of the identity that applies
@@ -54,6 +55,12 @@ make run-undeploy [ENV=dev] [ARGS="--resource NAME"] [APPLY=1 CONFIRM=dev]
 make run-audit [ARGS="--service iam --env dev"] [APPLY=1]
 ```
 
+Optional local web UI (Streamlit, `src/webui/`, labels in Spanish), same env vars:
+```
+pip install -r requirements-ui.txt      # requirements.txt + streamlit + pandas
+make run-ui                             # exports .env; serves on 127.0.0.1:8501 (no login)
+```
+
 AWS auth into the sandbox account: `make authenticate_aws` (prints STS temp creds for the onboarding
 role). `requirements.txt` includes `botocore[crt]` because some local AWS CLI profiles use `aws login`.
 
@@ -67,20 +74,28 @@ A local `.venv/` has black, ruff and pre-commit installed.
 mypy is configured (`mypy.ini`) but its pre-commit hook is commented out. There is no test suite:
 `pyproject.toml` points pytest at `python_tests/unit`, which doesn't exist. To exercise the CLI without
 AWS, run `main([...])` inside `moto`'s `mock_aws()` (moto isn't in `requirements.txt`; install it in a
-throwaway venv).
+throwaway venv). For the web UI, `streamlit.testing.v1.AppTest.from_file("src/webui/app.py")`
+works inside `mock_aws()` too (buttons/inputs are addressed by their `key=`).
 
 ## Architecture
 
 - `src/main.py` — entry point; puts `src/` on `sys.path` and calls `deploy.cli.main`.
 - `src/deploy/cli.py` — argparse with `deploy <service>`, `undeploy`, and
   `inventory init|list|import|keep|unkeep|expire|expired|audit` subcommands. Also holds the
-  expiry selection (`_expired_items`: a dependent doesn't expire while a `created` dependency is
+  expiry selection (`expired_items`: a dependent doesn't expire while a `created` dependency is
   unexpired) and applies audit fixes (inventory only).
   Verifies `sts:GetCallerIdentity` matches `AWS_ACCOUNT_ID` before any command, validates/creates the
   inventory table before touching a service, then builds one `DeployRun` per environment (all sharing
   one deployment id, built by `_runs()`) and passes it to the service. `SERVICES` is the service
   registry: a new service is a `services/<name>.py` class implementing `ServiceDeployer`, registered
   there.
+  Its public helpers (`inventory_store`, `verified_caller_arn`, `expired_items`, `undeploy_plan`)
+  are shared with the web UI; `undeploy_plan` is the one selection function behind both
+  `undeploy` and the UI's preview.
+- `src/webui/` — Streamlit UI. `backend.py` is its only bridge to `deploy`: reads call the
+  library (cached 30 s), **every write runs `cli.main([...])`** with captured stdout under a lock,
+  so no safety rule is reimplemented in the UI. `components/run_flow.py` enforces dry-run before
+  apply (same argv) and passes the typed environments as `--confirm` for undeploy.
 - `src/deploy/resources.py` — `DeployRun` (run context: env, apply flag, deployment id, caller ARN,
   `action` deploy/import, `record()` callback, `tags(origin)`), `ResourceRecord`, `ImportOptions`,
   and the `resource-deploy:*` ownership tag
@@ -107,7 +122,8 @@ their content; the origin tag is only overwritten with `--reclassify`. And `unde
 delete the pre-approved items in dependency order, re-check the AWS origin tag, report each outcome via
 `run.record_removal(item, error)`, and never detach a policy from anything outside the plan (block
 instead). Plus `environments()` and `audit(run, items) -> list[Finding]` (read-only; kinds in
-`resources.FINDING_*`).
+`resources.FINDING_*`), and optionally `definitions(environment) -> list[Definition]` (what
+`deploy` would manage, from local files only; feeds the UI's catalog).
 
 Inventory writes: DynamoDB rejects unused `ExpressionAttributeNames`, so build them per expression
 (`inventory._names`). `put()` resets the lifecycle when the item was `status=deleted` (conditional

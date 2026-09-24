@@ -16,6 +16,7 @@ manage the permissions of the identity that is running it.
 | [expiry.md](expiry.md) | Expiry dates (`--ttl`, `inventory expire`), `inventory expired`, `undeploy --expired` |
 | [notes.md](notes.md) | **Read before first real use:** verification status, setup checklist, design decisions, breaking changes, known limitations, required permissions |
 | [iam-service.md](iam-service.md) | How the JSON files in `src/utils/data/iam/` become roles and policies |
+| [web-ui.md](web-ui.md) | Optional local web page (Streamlit) to browse and run everything above |
 
 ## Setup
 
@@ -23,6 +24,8 @@ manage the permissions of the identity that is running it.
 2. Copy `.env.template` to `.env`, fill it in, and export it (or use Docker, below).
 3. Authenticate to AWS (profile, `aws login`, or temporary credentials from
    `make authenticate_aws`).
+4. Optional: for the web UI, `pip install -r requirements-ui.txt` and `make run-ui`
+   (see [web-ui.md](web-ui.md)).
 
 ### Environment variables
 
@@ -128,6 +131,9 @@ The service must:
 - implement `environments()` (the environments it has definitions for) and `audit(run,
   items)`: return `Finding`s comparing the inventory, AWS and its definitions, without
   changing anything;
+- optionally implement `definitions(environment)`: the `Definition`s it would manage there,
+  read from its own source without calling AWS. Only the web UI's catalog uses it; the
+  default returns nothing;
 - only call write APIs when `run.apply` is true.
 
 Then document it in `docs/<name>-service.md`, link it from the table at the top of this

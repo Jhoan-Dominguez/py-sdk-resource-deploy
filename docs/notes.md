@@ -23,6 +23,13 @@ every change.
   finding kind, `--apply`), and expiry (`--ttl`, `expire`, `expired`, `undeploy --expired`
   with keep).
 
+- **Web UI** (`src/webui/`): tested the same way, with Streamlit's `AppTest` running the app
+  inside `moto.mock_aws()` (streamlit 1.64, pandas 3.0). Covered: missing table and
+  `inventory init`; deploy dry-run, then apply (apply stays disabled before the dry-run);
+  catalog and inventory status; overview metrics; undeploy preview vs. the CLI's plan (same
+  counts); wrong/right typed confirmation; audit; import; the deployment-id and expired modes.
+  It hasn't been opened in a real browser against the real account yet.
+
 ## Before the first real use
 
 1. Add `INVENTORY_TABLE` to `.env` (and `INVENTORY_TABLE_MODE=existing` if you'll use an
@@ -74,6 +81,11 @@ every change.
   unknown`). The importer is stored in `imported_by`.
 - **The inventory table is created with deletion protection and point-in-time recovery.**
   To delete it, turn off deletion protection manually first.
+- **The web UI runs the CLI for every write** (`deploy.cli.main` with captured output)
+  instead of calling the services directly, so no safety rule is duplicated. For reads, it
+  uses the library (`InventoryStore.list`, `cli.expired_items`, `cli.undeploy_plan`,
+  `definitions()`). Its labels are in Spanish because they're for the people using it; code,
+  comments and docs stay in English.
 - **All code and docs are in English**, per the project's language convention.
 
 ## Breaking changes
@@ -104,6 +116,17 @@ every change.
   `aws login` token cache; decide which is intended.
 - **Docker and confirmation:** containers run without a terminal, so `make run-undeploy
   APPLY=1` needs `CONFIRM=<envs>`.
+- **Web UI has no authentication.** It acts with the AWS credentials of whoever started it.
+  Keep it on `127.0.0.1` (`make run-ui` does).
+- **Web UI runs one command at a time.** Capturing the CLI output redirects the process's
+  stdout, so CLI runs are serialized with a lock. A second browser tab waits for the first
+  one's command to finish.
+- **Web UI data may be up to 30 s old.** Inventory reads are cached that long, and the cache
+  is cleared after every command. The sidebar's *Recargar datos* button forces a refresh.
+  AWS changes made outside the tool don't show until the next read (use *Auditoría*).
+- **`undeploy --expired --env` takes a single environment** (it's an exact-match filter on
+  the inventory), unlike the other commands, which take a comma-separated list. The web UI
+  offers a single environment picker for that mode.
 - **Leftover Terraform tooling** (`.tflint.hcl`, `.terraform-docs.yml`, `terraform_*`
   pre-commit hooks and Makefile targets) refers to Terraform code that isn't in this repo.
 
@@ -120,4 +143,5 @@ The identity running the tool needs, per command:
 | `deploy iam` | `iam:GetPolicy`, `GetPolicyVersion`, `CreatePolicy`, `CreatePolicyVersion`, `ListPolicyVersions`, `DeletePolicyVersion`, `TagPolicy`, `GetRole`, `CreateRole`, `UpdateAssumeRolePolicy`, `TagRole`, `ListAttachedRolePolicies`, `AttachRolePolicy` |
 | `inventory import iam` | `iam:GetPolicy`, `GetRole`, `TagPolicy`, `TagRole`, `ListAttachedRolePolicies` |
 | `undeploy iam` | `iam:GetRole`, `GetPolicy`, `DetachRolePolicy`, `DeleteRole`, `DeleteRolePolicy`, `ListRolePolicies`, `ListAttachedRolePolicies`, `ListInstanceProfilesForRole`, `RemoveRoleFromInstanceProfile`, `ListEntitiesForPolicy`, `ListPolicyVersions`, `DeletePolicyVersion`, `DeletePolicy` |
+| web UI | Nothing extra: each page needs the permissions of the commands it runs (reads need the inventory reads above; the catalog reads only local files) |
 | `inventory audit` (iam) | `iam:ListRoles`, `ListRoleTags`, `ListPolicies`, `ListPolicyTags`, `GetRole`, `GetPolicy`, `ListAttachedRolePolicies` |
