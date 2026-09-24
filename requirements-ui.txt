@@ -1,0 +1,4 @@
+# Web UI (src/webui/) only; the CLI and its Docker image keep using requirements.txt.
+-r requirements.txt
+streamlit>=1.50   # st.navigation / st.Page and width="stretch", used across src/webui/
+pandas>=2.2       # inventory tables
