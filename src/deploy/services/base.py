@@ -11,7 +11,7 @@ from typing import Any
 
 import boto3
 
-from ..resources import DeployRun, Finding, ImportOptions
+from ..resources import Definition, DeployRun, Finding, ImportOptions
 
 
 class ServiceDeployer(ABC):
@@ -67,3 +67,9 @@ class ServiceDeployer(ABC):
         FINDING_UNDEFINED (active but no longer defined in the source) and
         FINDING_UNTRACKED (defined, exists in AWS, but untagged and not in the inventory).
         """
+
+    def definitions(self, environment: str) -> list[Definition]:
+        """What `deploy` would manage in `environment`, from the service's own source, without
+        calling AWS. Optional: used only by the web UI's catalog (empty = nothing to show).
+        """
+        return []

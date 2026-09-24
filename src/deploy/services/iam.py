@@ -57,6 +57,7 @@ from ..resources import (
     TAG_PROJECT,
     TAG_SERVICE,
     TOOL_NAME,
+    Definition,
     DeployRun,
     Finding,
     ImportOptions,
@@ -597,6 +598,31 @@ class IamService(ServiceDeployer):
 
     def environments(self) -> list[str]:
         return sorted(p.name.removeprefix("iam-") for p in DATA_ROOT.glob("iam-*") if p.is_dir())
+
+    def definitions(self, environment: str) -> list[Definition]:
+        files, skipped = _discover(environment)
+        found = [
+            Definition(_TYPE_POLICY, f.stem, f.path.name, "permissions boundary, not attached")
+            for f in files
+            if f.is_boundary
+        ]
+        for group in _group_roles(files, environment, config.project_name()):
+            sources = ", ".join(f.path.name for f in group.policies)
+            found.append(Definition(_TYPE_ROLE, group.role_name, sources, "trust: configured user"))
+            for f in group.policies:
+                found.append(
+                    Definition(
+                        _TYPE_POLICY,
+                        _unique_name(f.stem, environment),
+                        f.path.name,
+                        f"attached to {group.role_name}",
+                    )
+                )
+        found += [
+            Definition("skipped", path.stem, path.name, "alternate variant, not deployed")
+            for path in skipped
+        ]
+        return found
 
     def _owned_by_run(self, tags, run: DeployRun) -> bool:
         values = tags_to_dict(tags)

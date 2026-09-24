@@ -115,6 +115,18 @@ class Finding:
     record: ResourceRecord | None = None
 
 
+@dataclass(frozen=True)
+class Definition:
+    """One resource a service's source defines for an environment (what `deploy` would
+    manage), as listed by the web UI's catalog. Nothing here reflects AWS state."""
+
+    resource_type: str
+    name: str
+    # Where it comes from (e.g. the JSON file name).
+    source: str
+    detail: str = ""
+
+
 # Finding kinds. MISSING/ORPHAN/ORIGIN_MISMATCH can be fixed in the inventory by
 # `audit --apply`; UNDEFINED/UNTRACKED need a human decision (undeploy / import).
 FINDING_MISSING = "missing"

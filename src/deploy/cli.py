@@ -57,7 +57,7 @@ from .resources import (
 )
 from .services.base import ServiceDeployer
 from .services.iam import IamService
-from .undeploy import plan_undeploy
+from .undeploy import UndeployPlan, plan_undeploy
 
 SERVICES: dict[str, type[ServiceDeployer]] = {
     "iam": IamService,
@@ -73,7 +73,7 @@ class AccountMismatchError(RuntimeError):
     pass
 
 
-def _verified_caller_arn(session: boto3.Session, aws_account_id: str) -> str:
+def verified_caller_arn(session: boto3.Session, aws_account_id: str) -> str:
     # Fail fast if AWS_ACCOUNT_ID doesn't match who we're actually authenticated as,
     # instead of silently creating resources (or inventory entries) in the wrong account.
     identity = session.client("sts").get_caller_identity()
@@ -86,7 +86,7 @@ def _verified_caller_arn(session: boto3.Session, aws_account_id: str) -> str:
     return identity["Arn"]
 
 
-def _inventory(session: boto3.Session) -> InventoryStore:
+def inventory_store(session: boto3.Session) -> InventoryStore:
     return InventoryStore(
         session.client("dynamodb"),
         table_name=config.inventory_table(),
@@ -103,7 +103,7 @@ def _runs(args: argparse.Namespace, session: boto3.Session, caller_arn: str, act
     """
     # Parsed once so every environment of the run gets the same expiry.
     expires_at = parse_expiry(args.ttl) if args.ttl else None
-    inventory = _inventory(session)
+    inventory = inventory_store(session)
     print(f"inventory table {inventory.table_name}: {inventory.ensure_table(args.apply)}")
     if expires_at:
         print(f"recorded resources will expire at {expires_at}")
@@ -160,7 +160,7 @@ def _cmd_inventory_import(args: argparse.Namespace, session: boto3.Session, call
 
 
 def _cmd_inventory_init(args: argparse.Namespace, session: boto3.Session, _: str) -> int:
-    inventory = _inventory(session)
+    inventory = inventory_store(session)
     print(f"inventory table {inventory.table_name}: {inventory.ensure_table(args.apply)}")
     return 0
 
@@ -180,7 +180,7 @@ _LIST_COLUMNS = (
 
 
 def _cmd_inventory_list(args: argparse.Namespace, session: boto3.Session, _: str) -> int:
-    inventory = _inventory(session)
+    inventory = inventory_store(session)
     status = inventory.ensure_table(apply=False)
     if not inventory.ready:
         print(f"inventory table {inventory.table_name}: {status}; nothing deployed yet.")
@@ -214,7 +214,7 @@ def _print_items(items: list[dict[str, Any]]) -> None:
 
 
 def _ready_inventory(session: boto3.Session) -> InventoryStore | None:
-    inventory = _inventory(session)
+    inventory = inventory_store(session)
     status = inventory.ensure_table(apply=False)
     if not inventory.ready:
         print(f"inventory table {inventory.table_name}: {status}; nothing recorded yet.")
@@ -271,15 +271,17 @@ def _cmd_inventory_expire(args: argparse.Namespace, session: boto3.Session, call
     return 1 if missing else 0
 
 
-def _expired_items(inventory: InventoryStore, args: argparse.Namespace) -> list[dict[str, Any]]:
-    """Active items whose expiry passed.
+def expired_items(
+    inventory: InventoryStore, environment: str | None = None, service: str | None = None
+) -> list[dict[str, Any]]:
+    """Active items whose expiry passed (optionally only one environment/service).
 
     A dependent (e.g. an attachment) doesn't expire on its own while something `created` it
     depends on is still unexpired: extending a role/policy must not leave its attachment
     to be removed. It still goes when that dependency expires (undeploy pulls dependents).
     """
     now = format_timestamp(datetime.now(UTC))
-    items = inventory.list(environment=args.env, service=args.service, status=STATUS_ACTIVE)
+    items = inventory.list(environment=environment, service=service, status=STATUS_ACTIVE)
     by_id = {i["resource_id"]: i for i in items}
 
     def expired(item: dict[str, Any]) -> bool:
@@ -301,7 +303,7 @@ def _cmd_inventory_expired(args: argparse.Namespace, session: boto3.Session, _: 
     inventory = _ready_inventory(session)
     if inventory is None:
         return 0
-    items = _expired_items(inventory, args)
+    items = expired_items(inventory, args.env, args.service)
     if not items:
         print("Nothing has expired.")
         return 0
@@ -400,8 +402,45 @@ def _confirmed(args: argparse.Namespace, environments: set[str]) -> bool:
     return answer.strip() == expected
 
 
+def undeploy_plan(
+    inventory: InventoryStore,
+    *,
+    service: str | None = None,
+    env: str | None = None,
+    resources: list[str] | None = None,
+    deployment_id: str | None = None,
+    expired: bool = False,
+) -> tuple[UndeployPlan, list[str]]:
+    """What an undeploy would delete and skip (shared by `undeploy` and the web UI's preview).
+
+    Exactly one selection mode: `deployment_id`, `expired` (service/env as filters) or
+    service + env (comma-separated) with optional `resources` names. Returns the plan and
+    the `resources` names that match no active entry.
+    """
+    unmatched: list[str] = []
+    if deployment_id:
+        targets = inventory.list(deployment_id=deployment_id, status=STATUS_ACTIVE)
+        partitions = {(i["service"], i["environment"]) for i in targets}
+    elif expired:
+        targets = expired_items(inventory, env, service)
+        partitions = {(i["service"], i["environment"]) for i in targets}
+    else:
+        partitions = {(service, e.strip()) for e in (env or "").split(",") if e.strip()}
+    everything = [i for svc, e in sorted(partitions) for i in inventory.list(e, svc)]
+    if not (deployment_id or expired):
+        targets = [i for i in everything if i.get("status") == STATUS_ACTIVE]
+        if resources:
+            unmatched = sorted(set(resources) - {i["resource_name"] for i in targets})
+            targets = [i for i in targets if i["resource_name"] in resources]
+
+    plan = plan_undeploy(everything, {i["resource_id"] for i in targets}, config.aws_account_id())
+    unknown = [i for i in plan.delete if i["service"] not in SERVICES]
+    plan.skipped += [(i, f"service {i['service']} is not registered") for i in unknown]
+    plan.delete = [i for i in plan.delete if i["service"] in SERVICES]
+    return plan, unmatched
+
+
 def _cmd_undeploy(args: argparse.Namespace, session: boto3.Session, caller_arn: str) -> int:
-    by_scope = not (args.expired or args.deployment_id)
     if args.expired:
         valid = not (args.deployment_id or args.resource)
     elif args.deployment_id:
@@ -419,27 +458,16 @@ def _cmd_undeploy(args: argparse.Namespace, session: boto3.Session, caller_arn: 
     if inventory is None:
         return 0
 
-    if args.deployment_id:
-        targets = inventory.list(deployment_id=args.deployment_id, status=STATUS_ACTIVE)
-        partitions = {(i["service"], i["environment"]) for i in targets}
-    elif args.expired:
-        targets = _expired_items(inventory, args)
-        partitions = {(i["service"], i["environment"]) for i in targets}
-    else:
-        partitions = {(args.service, e.strip()) for e in args.env.split(",")}
-    everything = [i for service, env in sorted(partitions) for i in inventory.list(env, service)]
-    if by_scope:
-        targets = [i for i in everything if i.get("status") == STATUS_ACTIVE]
-        if args.resource:
-            for name in sorted(set(args.resource) - {i["resource_name"] for i in targets}):
-                print(f"warning: --resource {name} is not an active inventory entry, ignored")
-            targets = [i for i in targets if i["resource_name"] in args.resource]
-
-    plan = plan_undeploy(everything, {i["resource_id"] for i in targets}, config.aws_account_id())
-    unknown = [i for i in plan.delete if i["service"] not in SERVICES]
-    plan.skipped += [(i, f"service {i['service']} is not registered") for i in unknown]
-    plan.delete = [i for i in plan.delete if i["service"] in SERVICES]
-
+    plan, unmatched = undeploy_plan(
+        inventory,
+        service=args.service,
+        env=args.env,
+        resources=args.resource,
+        deployment_id=args.deployment_id,
+        expired=args.expired,
+    )
+    for name in unmatched:
+        print(f"warning: --resource {name} is not an active inventory entry, ignored")
     for item, reason in plan.skipped:
         print(
             f"  skip {item['environment']} {item['resource_type']} "
@@ -654,7 +682,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         session = boto3.Session(region_name=config.aws_region())
-        caller_arn = _verified_caller_arn(session, config.aws_account_id())
+        caller_arn = verified_caller_arn(session, config.aws_account_id())
         return args.handler(args, session, caller_arn)
     except (MissingEnvVarError, AccountMismatchError, InventoryError, ExpiryError) as e:
         print(f"error: {e}", file=sys.stderr)
