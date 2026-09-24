@@ -72,3 +72,9 @@ run-undeploy: docker-build
 # Usage: make run-audit [ARGS="--service iam --env dev"] [APPLY=1]
 run-audit: docker-build
 	$(DOCKER_RUN) inventory audit $(ARGS) $(if $(APPLY),--apply,)
+
+# Local web UI (src/webui/, docs/web-ui.md) on http://127.0.0.1:8501, with .env exported.
+# Needs `pip install -r requirements-ui.txt`. It has no login: never bind it beyond localhost.
+run-ui:
+	set -a && . ./.env && set +a && \
+		streamlit run src/webui/app.py --server.address 127.0.0.1 --browser.gatherUsageStats false
